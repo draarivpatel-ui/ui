@@ -1673,6 +1673,8 @@ function createAgent(
   const held = new Map<string, string[]>()
   let surveyed = false
   let partial = false
+  // Whether the step running now is on something private, whose errors are redacted.
+  let guarded = false
   // The components behind what's closed, kept while a query reads them.
   let noted: AgentComponent[] | undefined
 
@@ -2427,6 +2429,7 @@ function createAgent(
       )
     }
     const secret = entry.secret || (!!press && isSecret([press.button]))
+    guarded = secret
     const failure = (error: unknown) =>
       secret ? "[redacted]" : messageOf(error)
     // A set whose value stays as it was, and isn't what the step asked for,
@@ -2669,6 +2672,7 @@ function createAgent(
       held.clear()
       surveyed = false
       partial = false
+      guarded = false
       try {
         const prior = capture()
         let found: ReturnType<typeof capture> | undefined
@@ -2678,8 +2682,7 @@ function createAgent(
           step.args ?? [],
           guard,
           () => (found = capture())
-        )
-        commitStep(true)
+        ).finally(() => commitStep(guarded))
         touched.add(ref)
         const { changes, gone } = since(prior, ref, false, found)
         log.push({
@@ -2690,7 +2693,6 @@ function createAgent(
           ...(gone.length && { gone }),
         })
       } catch (thrown) {
-        commitStep(false)
         const rest = steps.length - index - 1
         const closed = guessed.has(thrown as Error) ? await outline() : ""
         error = {

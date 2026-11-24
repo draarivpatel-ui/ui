@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "vitest"
 import { checkbox } from "../src/components/checkbox/checkbox"
 import { collapsible } from "../src/components/collapsible/collapsible"
 import { input, textarea } from "../src/components/input/input"
+import { numberInput } from "../src/components/number-input/number-input"
 import { bind } from "../src/foundation/kernel/part"
 import { createAgent } from "../src/page/agent/agent"
 
@@ -164,6 +165,19 @@ test("no tool reads what is private, and no step or look changes what needs a pe
   )
   billing.trigger.setAttribute("data-agent-confirm", "Shows what you pay")
 
+  const code = numberInput({
+    id: "code",
+    defaultValue: 1,
+    onValueCommit: () => {
+      throw new Error("canary-commit")
+    },
+  })
+  const codeField = inside("data-agent-secret").appendChild(
+    document.createElement("input")
+  )
+  codeField.setAttribute("aria-label", "Backup code")
+  cleanups.push(bind(code.part("control"), codeField), () => code.destroy())
+
   const agent = createAgent()
   const told: unknown[] = []
   cleanups.push(agent.subscribe((change) => told.push(change)))
@@ -193,6 +207,12 @@ test("no tool reads what is private, and no step or look changes what needs a pe
   const read = await act({ ref: "Recovery code", action: "expect", args: [""] })
   expect(read.error?.message).toContain("is private")
   await act({ ref: "PIN", action: "setValue", args: ["0000"] })
+  const committed = await act({
+    ref: "Backup code",
+    action: "setValue",
+    args: [2],
+  })
+  expect(committed.error?.message).toContain("failed: [redacted]")
   for (const query of [
     { text: "plan" },
     { text: "draft" },

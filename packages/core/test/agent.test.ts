@@ -3084,6 +3084,56 @@ describe("agent act", () => {
     expect(onValueCommit).not.toHaveBeenCalled()
   })
 
+  test("what a private field's commit throws reads redacted, and a public field's reads as it is", async () => {
+    const agent = createAgent()
+    const mount = (label: string, parent: Element) => {
+      const instance = numberInput({
+        id: label.toLowerCase(),
+        defaultValue: 1,
+        onValueCommit: () => {
+          throw new Error(`${label} 4242 was refused`)
+        },
+      })
+      const field = parent.appendChild(document.createElement("input"))
+      field.setAttribute("aria-label", label)
+      cleanups.push(bind(instance.part("control"), field), () =>
+        instance.destroy()
+      )
+      return instance
+    }
+    const region = document.body.appendChild(document.createElement("div"))
+    region.setAttribute("data-agent-secret", "")
+    cleanups.push(() => region.remove())
+    const pin = mount("Pin", region)
+    const seats = mount("Seats", document.body)
+    const set = (ref: string) =>
+      agent.act({ steps: [{ ref, action: "setValue", args: [2] }] })
+    const secret = await set("Pin")
+    expect(secret.error?.message).toMatch(
+      /^The commit of Pin \(c\d+\) failed: \[redacted\]$/
+    )
+    expect(JSON.stringify(secret)).not.toContain("4242")
+    expect(pin.get().value).toBe(2)
+    expect((await set("Seats")).error?.message).toBe("Seats 4242 was refused")
+    expect(seats.get().value).toBe(2)
+  })
+
+  test("a step that fails after it moved the value still commits where it landed", async () => {
+    const agent = createAgent()
+    const onValueCommit = vi.fn()
+    const instance = slider({ id: "seats", defaultValue: 12, onValueCommit })
+    const root = document.body.appendChild(document.createElement("div"))
+    root.setAttribute("aria-label", "Seats")
+    cleanups.push(bind(instance.part("root"), root), () => instance.destroy())
+    const outcome = await agent.act({
+      steps: [{ ref: "Seats", action: "setValue", args: [2.5] }],
+    })
+    expect(outcome.error?.message).toMatch(/took 3, not 2\.5/)
+    expect(onValueCommit.mock.calls).toEqual([
+      [3, { reason: "imperative", source: "agent", thumb: null }],
+    ])
+  })
+
   test("a slider given text takes the number in it", async () => {
     const agent = createAgent()
     const instance = slider({

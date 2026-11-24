@@ -469,12 +469,13 @@ function settle(id: string, key: string, value: unknown, details: Details) {
 }
 
 // An agent's step is a whole interaction, like a drag that ended, so what it
-// changed on a key its component commits is committed once it has taken,
-// unless the component did. A failed step or a value turned down commits nothing.
-function commitStep(took: boolean) {
+// changed on a key its component commits is committed once it ends, unless
+// the component did. A value that is what it was, like one turned down, isn't.
+function commitStep(secret: boolean) {
   const steps = [...uncommitted]
   uncommitted.clear()
-  for (const [entry, changed] of took ? steps : []) {
+  let failed: { error: unknown } | undefined
+  for (const [entry, changed] of steps) {
     const instance = entry.instance.deref()
     const options = instance && optionsOf.get(instance)
     if (!options) {
@@ -490,10 +491,26 @@ function commitStep(took: boolean) {
         cancel?: unknown
         canceled?: unknown
       }
-      if (!sameValue(state[key], from)) {
+      if (sameValue(state[key], from)) {
+        continue
+      }
+      try {
         commit(key, state[key], given)
+      } catch (error) {
+        // What a private field's handler throws can repeat its value.
+        failed ??= {
+          error:
+            secret || entry.secret
+              ? new Error(
+                  `The commit of ${entry.label ?? entry.component} (${entry.ref}) failed: [redacted]`
+                )
+              : error,
+        }
       }
     }
+  }
+  if (failed) {
+    throw failed.error
   }
 }
 
