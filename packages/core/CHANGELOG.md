@@ -1,5 +1,15 @@
 # @ui-sdk/core
 
+## 0.1.0-beta.18
+
+### Patch Changes
+
+- 1b357fa: Input: `setValue` with text on an `<input type="file">` now returns `false` and changes nothing, where it threw the browser's error and kept the text as the value. An agent's `setValue` step on one fails with the value the field holds, and its `values` and the next snapshot no longer report text the input never took. `clear` still empties it.
+- 4ebaab3: An agent's `setValue` that names an item of a Select, Combobox or Listbox by its `itemToValue` key now sets the item's own value. Before, a list whose values are objects stored the key as text and answered `ok: true`. A list whose data holds object values lists each item by that key in the snapshot, where it read `[object Object]`.
+- 3930e19: The agent bridge redacts only what a private field holds. Password Input's `visible` read `"[redacted]"` in the snapshot and in a step's changes, so an agent offered `setVisible` couldn't tell what it would do. It now reads `true` or `false`, and so does `open` on a list inside `data-agent-secret`. The value stays redacted.
+- 8250b4d: The agent's snapshot names a web component Slider by its Field's label, as it does in the other frameworks.
+- 8250b4d: A Slider's thumb input no longer sets `pointer-events: none`, so browser automation tools that only target elements that take pointer events can find it and fill it. Presses still land on the thumb, since the input stays clipped.
+
 ## 0.1.0-beta.17
 
 ### Minor Changes
