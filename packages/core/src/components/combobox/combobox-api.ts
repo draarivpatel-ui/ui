@@ -63,6 +63,7 @@ import {
   createChange,
 } from "../../foundation/kernel/input-source"
 import { createDetails } from "../../foundation/kernel/details"
+import { isComposing } from "../../foundation/kernel/events"
 import { log } from "../../foundation/kernel/change"
 import { watchers } from "../../foundation/kernel/watchers"
 import { elements } from "../../foundation/kernel/elements"
@@ -460,22 +461,29 @@ function comboboxApiBody(
       reason = "imperative",
       event,
       dirty = false,
+      composing = false,
     }: {
       reason?: ComboboxQueryChangeReason
       event?: Event
       dirty?: boolean
+      composing?: boolean
     } = {}
   ) {
     store.set({ dirty })
-    return change("query", query, { reason, event })
+    return change("query", query, { reason, event, composing })
   }
 
   // A label a value from options showed in its own pass is past refusing, so
   // `onQueryChange` hears it, and canceling keeps the text.
-  function reportQuery({ from, to }: { from: string; to: string }) {
+  function reportQuery(
+    { from, to }: { from: string; to: string },
+    given: { reason: ComboboxQueryChangeReason; event?: Event } = {
+      reason: "imperative",
+    }
+  ) {
     const details = createDetails(
-      { reason: "imperative" as const },
-      changeSource("imperative")
+      { ...given, composing: false },
+      changeSource(given.reason, given.event)
     )
     log(context, "query", to, details)
     options().onQueryChange?.(to, details)
@@ -767,7 +775,12 @@ function comboboxApiBody(
     }
     const input = inputElement() as HTMLInputElement | undefined
     if (
-      !setQuery(text, { reason: "input-change", event, dirty: true }) &&
+      !setQuery(text, {
+        reason: "input-change",
+        event,
+        dirty: true,
+        composing: event !== undefined && isComposing(event as InputEvent),
+      }) &&
       input &&
       input.value !== store.get().query
     ) {
@@ -793,6 +806,18 @@ function comboboxApiBody(
       show({ event, by: "keyboard", reason: "input-change" })
     }
     settleHighlight()
+  }
+
+  // Chrome's last input of a composition is still composing, and none follows
+  // compositionend, so the commit is reported here. WebKit's trailing input of
+  // the same text no-ops after it, like any repeated input.
+  function compositionEnded(text: string, event: Event) {
+    const previous = store.get().query
+    typed(text, event)
+    if (!editable() || previous !== text || store.get().query !== text) {
+      return
+    }
+    reportQuery({ from: text, to: text }, { reason: "input-change", event })
   }
 
   const keyboard = createComboboxKeyboard({
@@ -908,6 +933,8 @@ function comboboxApiBody(
       typed,
       onInput: (event: Event) =>
         typed((event.target as HTMLInputElement).value, event),
+      onCompositionEnd: (event: Event) =>
+        compositionEnded((event.target as HTMLInputElement).value, event),
       onInputKeyDown: keyboard.onInputKeyDown,
       onListKeyDown: keyboard.onListKeyDown,
       onChipKeyDown: keyboard.onChipKeyDown,

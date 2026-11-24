@@ -305,10 +305,13 @@ type ComboboxSharedOptions<T> = PortalProps & {
   query?: string
   /** The input's text at first, when uncontrolled. Defaults to the selected item's label. */
   defaultQuery?: string
-  /** Runs when the input's text wants to change: typing, choosing an item, or closing with text that wasn't chosen. */
+  /** Runs when the input's text wants to change: typing, choosing an item, or closing with text that wasn't chosen. `details.composing` is true while an input method is still composing, so a search can wait for the commit that ends it. */
   onQueryChange?: (
     query: string,
-    details: ChangeDetails<ComboboxQueryChangeReason>
+    details: ChangeDetails<ComboboxQueryChangeReason> & {
+      /** Whether an input method was still composing the text. */
+      composing: boolean
+    }
   ) => void
   /** Whether the list is open. Pass it to control it. */
   open?: boolean

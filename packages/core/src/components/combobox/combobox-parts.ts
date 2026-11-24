@@ -250,6 +250,7 @@ const comboboxSlots = (slot: SlotFactory<ComboboxState, ComboboxApi>) => ({
     })),
     on: {
       input: (event, { api }) => api.internal.onInput(event),
+      compositionend: (event, { api }) => api.internal.onCompositionEnd(event),
       keydown: (event, { api }) => api.internal.onInputKeyDown(event),
       focusout(event, { api, store }) {
         const next = event.relatedTarget as Node | null
