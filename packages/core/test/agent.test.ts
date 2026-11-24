@@ -1140,6 +1140,35 @@ describe("agent", () => {
     expect(instance.get().value).toBeNull()
   })
 
+  test("an item's label puts a space between its blocks, as it reads on the page", async () => {
+    const agent = createAgent()
+    const instance = listbox({ id: "plan" })
+    const root = document.body.appendChild(document.createElement("div"))
+    root.setAttribute("aria-label", "Plan")
+    cleanups.push(bind(instance.part("root"), root), () => instance.destroy())
+    for (const [value, html] of [
+      ["starter", "<div>Starter</div><div>$12</div>"],
+      ["team", "<span>Team</span><div><b>$2</b>4</div><span>per seat</span>"],
+      ["business", "<span>Busi</span><span>ness</span>"],
+    ]) {
+      const item = root.appendChild(document.createElement("div"))
+      item.innerHTML = html
+      cleanups.push(bind(instance.part("item", { value }), item))
+    }
+    expect(
+      agent.snapshot().find(({ label }) => label === "Plan")?.items
+    ).toEqual([
+      { value: "starter", label: "Starter $12" },
+      { value: "team", label: "Team $24 per seat" },
+      { value: "business", label: "Business" },
+    ])
+    const outcome = await agent.act({
+      steps: [{ ref: "Plan", action: "setValue", args: ["Starter $12"] }],
+    })
+    expect(outcome.ok, outcome.error?.message).toBe(true)
+    expect(instance.get().value).toBe("starter")
+  })
+
   test("setValue refuses a disabled option that renders only while its select is open", async () => {
     const agent = createAgent()
     const content = document.body.appendChild(document.createElement("div"))
