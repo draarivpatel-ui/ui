@@ -3,6 +3,7 @@
 // row text read from its elements, and every change that goes through, settled
 // or step by step, once either entry installs it on the kernel's `watchers`.
 import type { AgentComponent } from "../agent/agent"
+import { commitFrom } from "../../foundation/kernel/change"
 import type { ChangeSource } from "../../foundation/kernel/details"
 import type {
   AgentSurface,
@@ -102,6 +103,10 @@ const offPage = new Map<string, AgentComponent>()
 // The regions each of those was in, for telling look-alikes apart.
 const placeOf = new WeakMap<AgentComponent, string[]>()
 const partsOf = new WeakMap<PrimitiveInstance, ReadonlyMap<string, Part>>()
+const optionsOf = new WeakMap<PrimitiveInstance, () => object>()
+// What an agent's step changed on a key its component commits, like a
+// slider's value, with no commit since.
+const uncommitted = new Map<Entry, Map<string, Details>>()
 let count = 0
 type Listener = (change: ObservedChange, parts: Bound[]) => void
 // Every listener, and whether it hears each step (`live`) rather than settled changes.
@@ -115,7 +120,8 @@ function watch(
     commits,
     agent,
     options,
-  }: Parameters<NonNullable<typeof watchers.add>>[2]
+  }: Parameters<NonNullable<typeof watchers.add>>[2],
+  live: () => object
 ) {
   const entry: Entry = {
     ref: `c${++count}`,
@@ -132,6 +138,7 @@ function watch(
   entries.set(entry.ref, entry)
   byId.set(entry.id, entry)
   partsOf.set(instance, parts)
+  optionsOf.set(instance, live)
   return () => retire(entry)
 }
 
@@ -420,10 +427,17 @@ function report(
   previous: unknown
 ) {
   const entry = byId.get(id)
-  if (!listeners.size || !entry) {
+  if (!entry) {
     return
   }
   const { source } = details
+  if (source === "agent" && entry.commits?.includes(key)) {
+    const changed = uncommitted.get(entry) ?? new Map<string, Details>()
+    uncommitted.set(entry, changed.set(key, details))
+  }
+  if (!listeners.size) {
+    return
+  }
   const held =
     !!entry.commits?.includes(key) &&
     source !== "programmatic" &&
@@ -441,11 +455,41 @@ function report(
 // call from code makes, was reported as it changed.
 function settle(id: string, key: string, value: unknown, details: Details) {
   const entry = byId.get(id)
+  if (entry) {
+    uncommitted.get(entry)?.delete(key)
+  }
   if (!listeners.size || !entry?.started.has(key)) {
     return
   }
   send(entry, key, value, details, entry.started.get(key), false)
   entry.started.delete(key)
+}
+
+// An agent's step is a whole interaction, like a drag that ended, so what it
+// changed on a key the component commits is committed once the step has
+// taken, unless the component did. A step that failed commits nothing.
+function commitStep(took: boolean) {
+  const steps = [...uncommitted]
+  uncommitted.clear()
+  for (const [entry, changed] of took ? steps : []) {
+    const instance = entry.instance.deref()
+    const options = instance && optionsOf.get(instance)
+    if (!options) {
+      continue
+    }
+    const state = instance.get() as Record<string, unknown>
+    const commit = commitFrom(
+      { id: entry.id, label: entry.component, options },
+      () => "agent"
+    )
+    for (const [key, details] of changed) {
+      const { cancel, canceled, source, ...given } = details as Details & {
+        cancel?: unknown
+        canceled?: unknown
+      }
+      commit(key, state[key], given)
+    }
+  }
 }
 
 // A change as a record for the listeners it's for, named the way the agent's
@@ -526,6 +570,7 @@ function elementsOf(ref: string) {
 export {
   bound,
   type Bound,
+  commitStep,
   componentLabel,
   elementsOf,
   entries,

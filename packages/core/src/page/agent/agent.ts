@@ -20,6 +20,7 @@ import {
 import { guardedActions } from "./guard"
 import {
   bound,
+  commitStep,
   componentLabel,
   rowOf,
   entries,
@@ -2678,6 +2679,7 @@ function createAgent(
           guard,
           () => (found = capture())
         )
+        commitStep(true)
         touched.add(ref)
         const { changes, gone } = since(prior, ref, false, found)
         log.push({
@@ -2688,6 +2690,7 @@ function createAgent(
           ...(gone.length && { gone }),
         })
       } catch (thrown) {
+        commitStep(false)
         const rest = steps.length - index - 1
         const closed = guessed.has(thrown as Error) ? await outline() : ""
         error = {

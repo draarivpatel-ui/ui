@@ -3010,6 +3010,73 @@ describe("agent act", () => {
     ])
   })
 
+  test("a step's change commits once, like a drag that ended or text typed and left", async () => {
+    const agent = createAgent()
+    const onSeats = vi.fn()
+    const seats = slider({
+      id: "seats",
+      defaultValue: 70,
+      onValueCommit: onSeats,
+    })
+    const root = document.body.appendChild(document.createElement("div"))
+    root.setAttribute("aria-label", "Seats")
+    const onPrice = vi.fn()
+    const price = numberInput({
+      id: "price",
+      defaultValue: 70,
+      onValueCommit: onPrice,
+    })
+    const field = document.body.appendChild(document.createElement("input"))
+    field.setAttribute("aria-label", "Price")
+    cleanups.push(
+      bind(seats.part("root"), root),
+      bind(price.part("control"), field),
+      () => seats.destroy(),
+      () => price.destroy()
+    )
+    const heard: unknown[] = []
+    cleanups.push(
+      agent.subscribe((change) => heard.push([change.label, change.value]))
+    )
+    const outcome = await agent.act({
+      steps: [
+        { ref: "Seats", action: "setValue", args: [30] },
+        { ref: "Price", action: "setValue", args: [30] },
+        { ref: "Price", action: "increment" },
+      ],
+    })
+    expect(outcome.ok).toBe(true)
+    expect(onSeats.mock.calls).toEqual([
+      [30, { reason: "imperative", source: "agent", thumb: null }],
+    ])
+    expect(onPrice.mock.calls).toEqual([
+      [30, { reason: "imperative", source: "agent" }],
+      [31, { reason: "imperative", source: "agent" }],
+    ])
+    expect(heard).toEqual([
+      ["Seats", 30],
+      ["Price", 30],
+      ["Price", 31],
+    ])
+  })
+
+  test("a change that didn't take, or one code makes, commits nothing", async () => {
+    const agent = createAgent()
+    const onValueCommit = vi.fn()
+    const instance = slider({ id: "seats", value: 70, onValueCommit })
+    const root = document.body.appendChild(document.createElement("div"))
+    root.setAttribute("aria-label", "Seats")
+    cleanups.push(bind(instance.part("root"), root), () => instance.destroy())
+    const outcome = await agent.act({
+      steps: [{ ref: "Seats", action: "setValue", args: [30] }],
+    })
+    expect(outcome.error?.message).toMatch(/didn't take: it is still 70/)
+    instance.setOptions({ id: "seats", onValueCommit })
+    instance.api.setValue(40)
+    expect(instance.get().value).toBe(40)
+    expect(onValueCommit).not.toHaveBeenCalled()
+  })
+
   test("a slider given text takes the number in it", async () => {
     const agent = createAgent()
     const instance = slider({
