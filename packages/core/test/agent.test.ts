@@ -3075,6 +3075,13 @@ describe("agent act", () => {
     instance.api.setValue(40)
     expect(instance.get().value).toBe(40)
     expect(onValueCommit).not.toHaveBeenCalled()
+    const price = numberInput({ id: "price", value: 70, onValueCommit })
+    const field = document.body.appendChild(document.createElement("input"))
+    field.setAttribute("aria-label", "Price")
+    cleanups.push(bind(price.part("control"), field), () => price.destroy())
+    await agent.act({ steps: [{ ref: "Price", action: "increment" }] })
+    expect(price.get().value).toBe(70)
+    expect(onValueCommit).not.toHaveBeenCalled()
   })
 
   test("a slider given text takes the number in it", async () => {

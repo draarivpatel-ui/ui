@@ -11,6 +11,7 @@ import type {
   PrimitiveInstance,
   PropSpec,
 } from "../../foundation/kernel/primitive-types"
+import { sameValue } from "../../foundation/kernel/store"
 import { watchEarlier, watchers } from "../../foundation/kernel/watchers"
 import {
   checkMarks,
@@ -105,8 +106,9 @@ const placeOf = new WeakMap<AgentComponent, string[]>()
 const partsOf = new WeakMap<PrimitiveInstance, ReadonlyMap<string, Part>>()
 const optionsOf = new WeakMap<PrimitiveInstance, () => object>()
 // What an agent's step changed on a key its component commits, like a
-// slider's value, with no commit since.
-const uncommitted = new Map<Entry, Map<string, Details>>()
+// slider's value, with no commit since, and the value before the step.
+type Uncommitted = Map<string, { details: Details; from: unknown }>
+const uncommitted = new Map<Entry, Uncommitted>()
 let count = 0
 type Listener = (change: ObservedChange, parts: Bound[]) => void
 // Every listener, and whether it hears each step (`live`) rather than settled changes.
@@ -432,8 +434,9 @@ function report(
   }
   const { source } = details
   if (source === "agent" && entry.commits?.includes(key)) {
-    const changed = uncommitted.get(entry) ?? new Map<string, Details>()
-    uncommitted.set(entry, changed.set(key, details))
+    const changed: Uncommitted = uncommitted.get(entry) ?? new Map()
+    const from = changed.has(key) ? changed.get(key)!.from : previous
+    uncommitted.set(entry, changed.set(key, { details, from }))
   }
   if (!listeners.size) {
     return
@@ -466,8 +469,8 @@ function settle(id: string, key: string, value: unknown, details: Details) {
 }
 
 // An agent's step is a whole interaction, like a drag that ended, so what it
-// changed on a key the component commits is committed once the step has
-// taken, unless the component did. A step that failed commits nothing.
+// changed on a key its component commits is committed once it has taken,
+// unless the component did. A failed step or a value turned down commits nothing.
 function commitStep(took: boolean) {
   const steps = [...uncommitted]
   uncommitted.clear()
@@ -482,12 +485,14 @@ function commitStep(took: boolean) {
       { id: entry.id, label: entry.component, options },
       () => "agent"
     )
-    for (const [key, details] of changed) {
+    for (const [key, { details, from }] of changed) {
       const { cancel, canceled, source, ...given } = details as Details & {
         cancel?: unknown
         canceled?: unknown
       }
-      commit(key, state[key], given)
+      if (!sameValue(state[key], from)) {
+        commit(key, state[key], given)
+      }
     }
   }
 }
