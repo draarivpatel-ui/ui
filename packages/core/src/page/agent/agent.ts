@@ -190,7 +190,13 @@ function fromData(
   const listed = new Set(known)
   const push = (value: unknown, label: string) => {
     if (!listed.has(key(value))) {
-      const item = { value: String(value), label }
+      const item = {
+        value:
+          value !== null && typeof value === "object"
+            ? key(value)
+            : String(value),
+        label,
+      }
       out.push(item)
       known?.add(key(value))
       values?.set(item, value)
@@ -597,8 +603,12 @@ const described = (entry: Entry) =>
     .join(" ")
 
 // A password, card or one-time code, or a field inside `data-agent-secret`, shows only whether it's filled, never what it holds.
-const redact = (entry: Entry, value: unknown) =>
-  entry.secret && value !== "" && value != null ? "[redacted]" : value
+// How it shows, like a password as text or a list open, isn't what it holds.
+const shows = ["open", "visible"]
+const redact = (entry: Entry, value: unknown, key = "value") =>
+  entry.secret && !shows.includes(key) && value !== "" && value != null
+    ? "[redacted]"
+    : value
 
 type SvelteStack = { file?: string; line?: number; parent?: SvelteStack | null }
 type SvelteElement = Element & {
@@ -729,7 +739,7 @@ function describe(entry: Entry, instance: PrimitiveInstance, parts: Bound[]) {
   }
   for (const key of stateKeys(entry, state)) {
     if (key in state) {
-      out[key] = redact(entry, state[key] ?? null)
+      out[key] = redact(entry, state[key] ?? null, key)
     }
   }
   // A reading nothing sets, like a progress bar's 2 of `max` 4.
@@ -1214,7 +1224,7 @@ function createAgent(
             component: entry.component,
             label: entry.label,
             key,
-            value: redact(entry, state[key]),
+            value: redact(entry, state[key], key),
           })
         }
       }
@@ -2141,16 +2151,36 @@ function createAgent(
       const askToOpen = () => ask(args, targetsOf(args[0]), "make this change")
       // A value by its item's label, like "Germany (Frankfurt)" or an accordion's "Email", so the agent needn't look up the value first.
       const label = typeof args[0] === "string" && fold(args[0])
+      const values = new Map<object, unknown>()
+      const data =
+        label || Array.isArray(args[0])
+          ? dataOf(entry, instance, undefined, undefined, values)
+          : undefined
+      // An item's own value where it's an object, which its key in a step stands for.
+      const own = (item: { value: string; label: string }) => {
+        const listed = data?.find(
+          (each) => each.value === item.value && each.label === item.label
+        )
+        const part = [...bound(instance), ...openParts].find(
+          (part) => part.key === item.value
+        )
+        const value =
+          listed && values.has(listed)
+            ? values.get(listed)
+            : (part?.props as { value?: unknown } | undefined)?.value
+        return value !== null && typeof value === "object" ? value : item.value
+      }
       if (label) {
-        const values = new Map<object, unknown>()
-        const data = dataOf(entry, instance, undefined, undefined, values)
         const items =
           action === "setValue"
             ? await listItems(entry, instance, askToOpen, seeOpen)
             : data?.length
               ? data
               : unnamed(entry, renderedItems(bound(instance)))
-        if (!items.some((item) => item.value === args[0])) {
+        const keyed = items.find((item) => item.value === args[0])
+        if (keyed && action === "setValue") {
+          args = [own(keyed), ...args.slice(1)]
+        } else if (!keyed) {
           const name = `${entry.label ?? entry.component} (${entry.ref})`
           const found = items.filter((item) => fold(item.label) === label)
           if (found.length > 1) {
@@ -2223,12 +2253,13 @@ function createAgent(
       ) {
         const items = await listItems(entry, instance, askToOpen, seeOpen)
         const name = `${entry.label ?? entry.component} (${entry.ref})`
-        const values = (args[0] as unknown[]).map((value) => {
-          if (
-            typeof value !== "string" ||
-            items.some((item) => item.value === value)
-          ) {
+        const named = (args[0] as unknown[]).map((value) => {
+          if (typeof value !== "string") {
             return value
+          }
+          const keyed = items.find((item) => item.value === value)
+          if (keyed) {
+            return own(keyed)
           }
           const found = items.filter((item) => fold(item.label) === fold(value))
           if (found.length > 1) {
@@ -2236,9 +2267,9 @@ function createAgent(
               `"${value}" names ${found.length} items in ${name}: ${found.map((item) => item.value).join(", ")}. Use a value.`
             )
           }
-          return found.length ? found[0].value : value
+          return found.length ? own(found[0]) : value
         })
-        args = [values, ...args.slice(1)]
+        args = [named, ...args.slice(1)]
       }
       // A closed list refuses values it doesn't have in a list or an object too.
       const elementOf = internalOf(instance)?.elementOf
